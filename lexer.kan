@@ -1,0 +1,303 @@
+import "std/str";
+
+type TokenKind enum {
+    Colon,
+    Comma,
+    PosInt, NegInt, Float,
+    String,
+    LBrace, RBrace,
+    LBracket, RBracket,
+    True, False, Null,
+    UnexpectedCharacter,
+    InvalidEscape,
+    End
+}
+
+type Token struct {
+    kind: TokenKind,
+    lexeme: str.View
+}
+
+def token(kind: TokenKind, lexeme: str.View): Token {
+    return Token {
+        kind: kind,
+        lexeme: lexeme
+    };
+}
+
+def is_letter(c: i8): bool {
+    return c >= 'a' && c <= 'z'
+        || c >= 'A' && c <= 'Z';
+}
+
+def is_digit(c: i8): bool {
+    return c >= '0' && c <= '9';
+}
+
+def is_hex_digit(c: i8): bool {
+    return is_digit(c)
+        || c >= 'a' && c <= 'f'
+        || c >= 'A' && c <= 'F';
+}
+
+def is_whitespace(c: i8): bool {
+    return c == ' '
+        || c == '\n'
+        || c == '\r'
+        || c == '\t';
+}
+
+type Lexer struct {
+    content: str.View,
+    current: usize,
+    has_peek: bool,
+    peeked: Token
+}
+
+def lexer(content: str.View): Lexer {
+    return Lexer {
+        content: content,
+        current: 0,
+        has_peek: false,
+        peeked: undefined
+    };
+}
+
+def (l: *Lexer) at_end(): bool {
+    return l.current >= l.content.len;
+}
+
+def (l: *Lexer) take(kind: TokenKind, len: usize): Token {
+    let rest = l.content.drop(l.current);
+    l.current += len;
+    return token(kind, str.view(rest.data, len));
+}
+
+def (l: *Lexer) current_char(): i8 {
+    return *l.content.drop(l.current).data;
+}
+
+def (l: *Lexer) consume(c: i8): bool {
+    if l.current_char() == c {
+        l.current += 1;
+        return true;
+    }
+    return false;
+}
+
+def (l: *Lexer) skip_after(c: i8) {
+    while !l.at_end() && l.current_char() != c {
+        l.current += 1;
+    }
+    l.current += 1;
+}
+
+def (l: *Lexer) skip_whitespace() {
+    while !l.at_end() && is_whitespace(l.current_char()) {
+        l.current += 1;
+    }
+}
+
+def (l: *Lexer) unexpected_char_error(): Token {
+    return token(TokenKind.UnexpectedCharacter, l.content.drop(l.current).take(1));
+}
+
+def (l: *Lexer) invalid_escape_error(): Token {
+    return token(TokenKind.InvalidEscape, l.content.drop(l.current).take(1));
+}
+
+def (l: *Lexer) peek(): Token {
+    if l.has_peek {
+        return l.peeked;
+    }
+
+    l.peeked = l.next();
+    l.has_peek = true;
+    return l.peeked;
+}
+
+def (l: *Lexer) from(kind: TokenKind, start: usize): Token {
+    let len = l.current - start;
+    return token(kind, l.content.drop(start).take(len));
+}
+
+def (l: *Lexer) rest(): str.View {
+    return l.content.drop(l.current);
+}
+
+def (l: *Lexer) next(): Token {
+    if l.has_peek {
+        l.has_peek = false;
+        return l.peeked;
+    }
+
+    l.skip_whitespace();
+    let rest = l.rest();
+
+    if rest.len == 0 || l.at_end() {
+        return token(TokenKind.End, rest);
+    }
+
+    let c = *rest.data;
+    if c == ':' {
+        return l.take(TokenKind.Colon, 1);
+    }
+
+    if c == '{' {
+        return l.take(TokenKind.LBrace, 1);
+    }
+
+    if c == '}' {
+        return l.take(TokenKind.RBrace, 1);
+    }
+
+    if c == '[' {
+        return l.take(TokenKind.LBracket, 1);
+    }
+
+    if c == ']' {
+        return l.take(TokenKind.RBracket, 1);
+    }
+
+    if c == ']' {
+        return l.take(TokenKind.RBracket, 1);
+    }
+
+    if c == ',' {
+        return l.take(TokenKind.Comma, 1);
+    }
+
+    if c == '\"' {
+        return l.lex_string();
+    }
+
+    if is_digit(*rest.data) {
+        return l.lex_number();
+    }
+
+    if rest.starts_with(str.view_from("true")) {
+        return l.take(TokenKind.True, 4);
+    }
+
+    if rest.starts_with(str.view_from("false")) {
+        return l.take(TokenKind.False, 5);
+    }
+
+    if rest.starts_with(str.view_from("null")) {
+        return l.take(TokenKind.Null, 4);
+    }
+
+    let error = l.unexpected_char_error();
+    l.current += 1;
+    return error;
+}
+
+def (l: *Lexer) lex_string(): Token {
+    let start = l.current;
+    if !l.consume('"') {
+        return l.unexpected_char_error();
+    }
+
+    while !(l.at_end() || l.current_char() == '"') {
+        // check for correct escape characters
+        if !l.consume('\\') {
+            l.current += 1;
+            continue;
+        }
+
+        let current = l.current_char();
+        let allowed = current == '"'
+            || current == '\\'
+            || current == '/'
+            || current == 'b'
+            || current == 'f'
+            || current == 'n'
+            || current == 'r'
+            || current == 't'
+            || current == 'u';
+
+        if !allowed {
+            let error = l.invalid_escape_error();
+            l.current += 1;
+            return error;
+        }
+
+        l.current += 1;
+
+        // hex literal
+        if current != 'u' {
+            continue;
+        }
+
+        for let i = 0; i < 4; i += 1 {
+            let c = l.current_char();
+            l.current += 1;
+
+            if !is_hex_digit(c) {
+                return l.invalid_escape_error();
+            }
+        }
+    }
+
+    if !l.consume('"') {
+        return l.unexpected_char_error();
+    }
+
+    return l.from(TokenKind.String, start);
+}
+
+def (l: *Lexer) lex_number(): Token {
+    let start = l.current;
+    let is_neg = l.current_char() == '-';
+    if is_neg {
+        l.current += 1;
+    }
+
+    let had_decimal = false;
+
+    // if we start with a 0, we expected a dot immediatly after
+    if l.consume('0') {
+        if l.consume('.') {
+            had_decimal = true;
+        }
+
+        // we need another digit after '.'
+        if had_decimal && !is_digit(l.current_char()) {
+            return l.unexpected_char_error();
+        }
+    }
+
+    while !l.at_end() && is_digit(l.current_char()) {
+        l.current += 1;
+    }
+
+    if l.consume('.') {
+        if had_decimal {
+            return l.unexpected_char_error();
+        }
+
+        had_decimal = true;
+
+        // we need another digit after '.'
+        if !is_digit(l.current_char()) {
+            return l.unexpected_char_error();
+        }
+    }
+
+    while !l.at_end() && is_digit(l.current_char()) {
+        l.current += 1;
+    }
+
+    // TODO: exponents
+
+    if had_decimal {
+        return l.from(TokenKind.Float, start);
+    }
+
+    if is_neg {
+        return l.from(TokenKind.NegInt, start);
+    }
+
+    return l.from(TokenKind.PosInt, start);
+}
+

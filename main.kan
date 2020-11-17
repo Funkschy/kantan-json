@@ -1,0 +1,32 @@
+import "io";
+import "std/str";
+import "std/files/path";
+
+import "value" as json;
+import "parser" as parse;
+
+def main() {
+    let waifus = str.from("");
+    let result = path.create("/home/felix/Downloads/waifus/waifus.json").read_to_string(&waifus);
+    if result.is_error() {
+        io.printf("Could not read file\n");
+        return;
+    }
+    defer waifus.free();
+
+    let parser = parse.parser(waifus.view());
+
+    let value = parser.parse();
+    defer value.free();
+
+    if value.kind == json.ValueKind.Error {
+        io.printf("Error at %.*s\n", 20, value.data.error.at.data - 10);
+        return;
+    }
+
+    let inner = value.at(0).get(str.view_from("series")).get(str.view_from("name"));
+    io.printf("%s\n", inner.data.s.cstring());
+
+    // let inner = value.get(str.view_from("kek")).get(str.view_from("lul"));
+    // io.printf("%d\n", inner.data.arr.len);
+}

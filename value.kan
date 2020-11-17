@@ -1,0 +1,168 @@
+import "std/str";
+import "std/vec";
+import "std/vmap";
+
+type ValueKind enum {
+    String, Number, Object, Array, Bool, Null, Error
+}
+
+type Value struct {
+    kind: ValueKind,
+    data: ValueData
+}
+
+type ValueData union {
+    s:          str.String,
+    num:        Number,
+    object:     vmap.Map,
+    arr:        vec.Vec,
+    boolean:    bool,
+    null_value: i8,
+    error: Error
+}
+
+def (v: *Value) free() {
+    if v.kind == ValueKind.Object {
+        let m = &v.data.object;
+        for let i: usize = 0; i < m.len(); i += 1 {
+            let v = m.get_ptr_idx(i) as *Value;
+            v.free();
+        }
+        m.free();
+        return;
+    }
+
+    if v.kind == ValueKind.Array {
+        let a = &v.data.arr;
+        for let i: usize = 0; i < a.len; i += 1 {
+            let v = a.get_ptr(i) as *Value;
+            v.free();
+        }
+        a.free();
+        return;
+    }
+
+    if v.kind == ValueKind.String {
+        v.data.s.free();
+        return;
+    }
+}
+
+def (v: *Value) get(name: str.View): *Value {
+    if v.kind != ValueKind.Object {
+        return null;
+    }
+
+    let key = vmap.key(name);
+    return v.data.object.get_ptr(key) as *Value;
+}
+
+def (v: *Value) at(idx: usize): *Value {
+    if v.kind != ValueKind.Array {
+        return null;
+    }
+
+    return v.data.arr.get_ptr(idx) as *Value;
+}
+
+def error_value(at: str.View): Value {
+    return Value {
+        kind: ValueKind.Error,
+        data: ValueData {
+            error: Error {
+                at: at
+            }
+        }
+    };
+}
+
+def object_value(values: vmap.Map): Value {
+    return Value {
+        kind: ValueKind.Object,
+        data: ValueData {
+            object: values
+        }
+    };
+}
+
+def array_value(values: vec.Vec): Value {
+    return Value {
+        kind: ValueKind.Array,
+        data: ValueData {
+            arr: values
+        }
+    };
+}
+
+def string_value(value: str.String): Value {
+    return Value {
+        kind: ValueKind.String,
+        data: ValueData {
+            s: value
+        }
+    };
+}
+
+def bool_value(value: bool): Value {
+    return Value {
+        kind: ValueKind.Bool,
+        data: ValueData {
+            boolean: value
+        }
+    };
+}
+
+def null_value(): Value {
+    return Value {
+        kind: ValueKind.Null,
+        data: ValueData {
+            null_value: 0
+        }
+    };
+}
+
+extern def strtod(nptr: *i8, endptr: **i8): f64;
+extern def strtol(nptr: *i8, endptr: **i8, based: i32): i64;
+
+def number_value(kind: NumberKind, value: str.View): Value {
+    // needed for null termination
+    let copy = value.clone();
+    defer copy.free();
+
+    let data: NumberData = undefined;
+    if kind == NumberKind.Float {
+        data.float = strtod(copy.cstring(), null);
+    } else {
+        data.sint = strtol(copy.cstring(), null, 10);
+    }
+
+    return Value {
+        kind: ValueKind.Number,
+        data: ValueData {
+            num: Number {
+                kind: kind,
+                data: data
+            }
+        }
+    };
+}
+
+type Error struct {
+    at: str.View
+}
+
+type NumberKind enum {
+    PosInt, NegInt, Float
+}
+
+type Number struct {
+    kind: NumberKind,
+    data: NumberData
+}
+
+type NumberData union {
+    uint: u64,
+    sint: i64,
+    float: f64
+}
+

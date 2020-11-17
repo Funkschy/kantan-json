@@ -1,0 +1,246 @@
+import "std/str";
+import "std/dbg";
+import "std/vec";
+import "std/vmap";
+
+import "value" as _;
+import "lexer" as lex;
+
+type Parser struct {
+    lexer: lex.Lexer
+}
+
+def parser(content: str.View): Parser {
+    return Parser {
+        lexer: lex.lexer(content)
+    };
+}
+
+def (p: *Parser) advance(): lex.Token {
+    return p.lexer.next();
+}
+
+def (p: *Parser) peek(): lex.Token {
+    return p.lexer.peek();
+}
+
+def (p: *Parser) at_end(): bool {
+    return p.lexer.at_end();
+}
+
+def (p: *Parser) consume(kind: lex.TokenKind, out: *lex.Token): bool {
+    if p.lexer.peek().kind == kind {
+        let next = p.advance();
+        if out != null {
+            *out = next;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+def (p: *Parser) parse(): Value {
+    let peeked = p.peek();
+
+    if peeked.kind == lex.TokenKind.LBrace {
+        return p.parse_obj();
+    }
+
+    if peeked.kind == lex.TokenKind.String {
+        return string_literal(p.advance().lexeme);
+    }
+
+    if peeked.kind >= lex.TokenKind.PosInt && peeked.kind <= lex.TokenKind.Float {
+        let num = p.advance();
+        let kind = num.kind as i32 - (lex.TokenKind.PosInt as i32);
+        let kind = *(&kind as *NumberKind);
+
+        return number_value(kind, num.lexeme);
+    }
+
+    if peeked.kind == lex.TokenKind.LBracket {
+        return p.parse_arr();
+    }
+
+    if peeked.kind == lex.TokenKind.True {
+        p.advance();
+        return bool_value(true);
+    }
+
+    if peeked.kind == lex.TokenKind.False {
+        p.advance();
+        return bool_value(false);
+    }
+
+    if peeked.kind == lex.TokenKind.Null {
+        p.advance();
+        return null_value();
+    }
+
+    return error_value(p.lexer.rest());
+}
+
+def char_literal(c: i8): i8 {
+    if c == '"' {
+        return '"';
+    } else if c == '\\' {
+        return '\\';
+    } else if c == '/' {
+        return '/';
+    } else if c == 'b' {
+        return 8;
+    } else if c == 'f' {
+        return 12;
+    } else if c == 'n' {
+        return '\n';
+    } else if c == 'r' {
+        return '\r';
+    } else if c == 't' {
+        return '\t';
+    }
+
+    return c;
+}
+
+def to_upper(c: i8): i8 {
+    return c - 32 * ((c >= 'a' && c <= 'z') as i8);
+}
+
+def to_hex(lit: str.View): u16 {
+    dbg.assert(lit.len == 4, "hex literal should have length of 4");
+    let value: u16 = 0;
+
+    let shift: u16 = 12;
+    for let i = 0; i < 4; i += 1 {
+        let c = to_upper(*(lit.data + i));
+
+        let n: i8 = 0;
+        if c >= 'A' {
+            n = c - 'A';
+        } else {
+            n = c - '0';
+        }
+
+        let n = n as u16;
+        n  = n << shift;
+        value |= n;
+
+        shift -= 4;
+    }
+
+    return value;
+}
+
+def string_literal(lexeme: str.View): Value {
+    let value = str.from("");
+    let start = lexeme.data + 1;
+
+    let in_pos: usize = 0;
+
+    while in_pos < lexeme.len - 2 {
+        let c = *(start + in_pos);
+        let inc: usize = 1;
+
+        if c == '\\' {
+            let next = *(start + in_pos + 1);
+
+            if next == 'u' {
+                let hex_value = to_hex(str.view(start + in_pos + 2, 4));
+                let first = ((hex_value >> 8) & 255) as i8;
+                let second = (hex_value & 255) as i8;
+                value.push(str.view(&first, 1));
+                value.push(str.view(&second, 1));
+                in_pos += 6;
+                continue;
+            }
+
+            c = char_literal(next);
+            // skip next
+            inc = 2;
+        }
+
+        value.push(str.view(&c, 1));
+        in_pos += inc;
+    }
+
+    return string_value(value);
+}
+
+
+def (p: *Parser) parse_obj(): Value {
+    let open: lex.Token = undefined;
+    if !p.consume(lex.TokenKind.LBrace, &open) {
+        return error_value(p.lexer.rest());
+    }
+
+    let map = vmap.create(sizeof Value);
+    let first = true;
+    while !(p.at_end() || p.peek().kind == lex.TokenKind.RBrace) {
+        if !first && !p.consume(lex.TokenKind.Comma, null) {
+            return error_value(p.lexer.rest());
+        }
+        first = false;
+
+        let key: lex.Token = undefined;
+        if !p.consume(lex.TokenKind.String, &key) {
+            map.free();
+            return error_value(p.lexer.rest());
+        }
+
+        if !p.consume(lex.TokenKind.Colon, null) {
+            map.free();
+            return error_value(p.lexer.rest());
+        }
+
+        let value = p.parse();
+        if value.kind == ValueKind.Error {
+            map.free();
+            return value;
+        }
+
+        let len = key.lexeme.len - 2;
+        let key = vmap.key(key.lexeme.drop(1).take(len));
+        map.insert(key, &value as *void);
+    }
+
+    let close: lex.Token = undefined;
+    if !p.consume(lex.TokenKind.RBrace, &close) {
+        map.free();
+        return error_value(p.lexer.rest());
+    }
+
+    return object_value(map);
+}
+
+def (p: *Parser) parse_arr(): Value {
+    let open: lex.Token = undefined;
+    if !p.consume(lex.TokenKind.LBracket, &open) {
+        return error_value(p.lexer.rest());
+    }
+
+    let values = vec.create(sizeof Value);
+    let first = true;
+    while !(p.at_end() || p.peek().kind == lex.TokenKind.RBracket) {
+        if !first && !p.consume(lex.TokenKind.Comma, null) {
+            return error_value(p.lexer.rest());
+        }
+        first = false;
+
+        let value = p.parse();
+        if value.kind == ValueKind.Error {
+            values.free();
+            return value;
+        }
+
+        values.push(&value as *void);
+    }
+
+    let close: lex.Token = undefined;
+    if !p.consume(lex.TokenKind.RBracket, &close) {
+        values.free();
+        return error_value(p.lexer.rest());
+    }
+
+    return array_value(values);
+}
