@@ -1,7 +1,7 @@
 # kantan-json
-A standard comformant json parser written in Kantan
+A (mostly) standard comformant json parser written in Kantan
 
-Installation/Usage
+## Installation/Usage
 ```
 git clone --recursive https://github.com/Funkschy/kantan-json.git
 cd kantan-json
@@ -9,3 +9,5 @@ cd kantan-json
 make
 ./json [Path to your json file]
 ```
+## TODO
+the parser can't handle scientific notation in json floats yet
