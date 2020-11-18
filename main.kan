@@ -5,12 +5,18 @@ import "std/files/path";
 import "value" as json;
 import "parser" as parse;
 
-def main() {
+def main(argc: i32, argv: *string): i32 {
+    if argc <= 1 {
+        io.printf("USAGE: %s <FILEPATH>\n", *argv);
+        return -1;
+    }
+
     let waifus = str.from("");
-    let result = path.create("/home/felix/Downloads/waifus/waifus.json").read_to_string(&waifus);
+    let filename = *(argv + 1);
+    let result = path.create(filename).read_to_string(&waifus);
     if result.is_error() {
         io.printf("Could not read file\n");
-        return;
+        return -1;
     }
     defer waifus.free();
 
@@ -21,12 +27,20 @@ def main() {
 
     if value.kind == json.ValueKind.Error {
         io.printf("Error at %.*s\n", 20, value.data.error.at.data - 10);
-        return;
+        return -1;
     }
 
-    let inner = value.at(0).get(str.view_from("series")).get(str.view_from("name"));
+    let inner = value.at(0);
+    if inner == null {
+        return -1;
+    }
+
+    inner = inner.get(str.view_from("name"));
+    if inner == null {
+        return -1;
+    }
+
     io.printf("%s\n", inner.data.s.cstring());
 
-    // let inner = value.get(str.view_from("kek")).get(str.view_from("lul"));
-    // io.printf("%d\n", inner.data.arr.len);
+    return 0;
 }
