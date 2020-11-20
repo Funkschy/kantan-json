@@ -65,6 +65,14 @@ def (v: *Value) at(idx: usize): *Value {
     return v.data.arr.get_ptr(idx) as *Value;
 }
 
+def (v: *Value) is_int(): bool {
+    return v != null && v.kind == ValueKind.Number && v.data.num.kind != NumberKind.Float;
+}
+
+def (v: *Value) is_float(): bool {
+    return v != null && v.kind == ValueKind.Number && v.data.num.kind == NumberKind.Float;
+}
+
 def error_value(at: str.View): Value {
     return Value {
         kind: ValueKind.Error,
