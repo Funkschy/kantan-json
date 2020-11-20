@@ -1,6 +1,6 @@
 import "io";
-import "std/str";
-import "std/files/path";
+import ":std/str";
+import ":std/files/path";
 
 import "value" as json;
 import "parser" as parse;

@@ -1,6 +1,6 @@
-import "std/str";
-import "std/vec";
-import "std/vmap";
+import ":std/str";
+import ":std/vec";
+import ":std/vmap";
 
 type ValueKind enum {
     String, Number, Object, Array, Bool, Null, Error

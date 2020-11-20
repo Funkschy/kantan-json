@@ -1,7 +1,7 @@
-import "std/str";
-import "std/dbg";
-import "std/vec";
-import "std/vmap";
+import ":std/str";
+import ":std/dbg";
+import ":std/vec";
+import ":std/vmap";
 
 import "value" as _;
 import "lexer" as lex;

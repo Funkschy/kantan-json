@@ -1,4 +1,4 @@
-import "std/str";
+import ":std/str";
 
 type TokenKind enum {
     Colon,
